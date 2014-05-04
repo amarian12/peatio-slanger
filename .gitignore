@@ -1,2 +1,4 @@
 server.*
 pusher_client.log
+.bundle
+.ruby-version
