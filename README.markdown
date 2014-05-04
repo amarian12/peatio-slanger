@@ -7,9 +7,9 @@
 
 ## Benchmark
 
-    # send 10 messages to 1000 concurrent clients, each message includes
-    # a 20 bytes payload.
-    ./benchmark.rb app_id app_key app_secret 1000 10 20
+    # connect to pusher compliant server running on localhost with 10 concurrent clients,
+    # publish 100 messages to the channel, each with 20 bytes payload.
+    ./benchmark.rb -a http://localhost:4567 -w ws://localhost:8080 -i 123 -k foo -s bar -c 10 -n 100 --size 20
 
 ## Tips
 

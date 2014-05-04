@@ -4,20 +4,54 @@ require 'pusher'
 require 'pusher-client'
 require 'json'
 require 'uri'
+require 'optparse'
 
-if ARGV.size != 8
-  puts "Usage: #{$0} api_server ws_server app_id app_key app_secret number_of_clients number_of_messages payload_size"
+options = {
+  api_uri: 'http://api.pusherapp.com:80',
+  ws_uri:  'ws://ws.pusherapp.com:80',
+  num: 1,
+  messages: 10,
+  payload_size: 20
+}
+
+OptionParser.new do |opts|
+  opts.on '-c', '--concurrency NUMBER', 'Number of clients' do |k|
+    options[:num] = k.to_i
+  end
+
+  opts.on '-n', '--messages NUMBER', 'Number of messages' do |k|
+    options[:messages] = k.to_i
+  end
+
+  opts.on '-i', '--app_id APP_ID', "Pusher application id" do |k|
+    options[:app_id] = k
+  end
+
+  opts.on '-k', '--app_key APP_KEY', "Pusher application key" do |k|
+    options[:app_key] = k
+  end
+
+  opts.on '-s', '--secret SECRET', "Pusher application secret" do |k|
+    options[:app_secret] = k
+  end
+
+  opts.on '-a', '--api_uri URI', "API service uri (Default: http://api.pusherapp.com:80)" do |uri|
+    options[:api_uri] = URI(uri)
+  end
+
+  opts.on '-w', '--websocket_uri URI', "WebSocket service uri (Default: ws://ws.pusherapp.com:80)" do |uri|
+    options[:ws_uri] = URI(uri)
+  end
+
+  opts.on '--size NUMBER', 'Payload size in bytes. (Default: 20)' do |s|
+    options[:payload_size] = s.to_i
+  end
+end.parse!
+
+unless options[:app_id] && options[:app_key] && options[:app_secret]
+  puts "You must provide all of app ID, key, secret, run #{$0} -h for more help."
   exit 1
 end
-
-api_server = URI(ARGV[0])
-ws_server  = URI(ARGV[1])
-id         = ARGV[2]
-key        = ARGV[3]
-secret     = ARGV[4]
-num        = ARGV[5].to_i
-total      = ARGV[6].to_i
-size       = ARGV[7].to_i
 
 PusherClient.logger = Logger.new File.open('pusher_client.log', 'w')
 
@@ -28,7 +62,7 @@ def puts_summary(stats, num, total, size, total_elapsed=nil)
   latency_avg = latencies.inject(&:+) / latencies.size
   latency_mid = latencies.sort[latencies.size/2]
 
-  puts "\n*** Summary (clients: #{num}, messagen send: #{total}, payload size: #{size})***\n"
+  puts "\n*** Summary (clients: #{num}, messages send: #{total}, payload size: #{size})***\n"
   puts "Message received: %d (%.2f%%)" % [latencies.size, latencies.size.to_f*100/(num*total)]
   puts "Total time: #{total_elapsed}s" if total_elapsed
   puts "avg latency: #{latency_avg}s"
@@ -37,15 +71,15 @@ def puts_summary(stats, num, total, size, total_elapsed=nil)
   puts "mid latency: #{latency_mid}"
 end
 
-sockets = num.times.map do |i|
+sockets = options[:num].times.map do |i|
   sleep 0.2
   received_total = 0
   socket = PusherClient::Socket.new(
-    key,
-    ws_host: ws_server.host,
-    ws_port: ws_server.port,
-    wss_port: ws_server.port,
-    encrypted: ws_server.scheme == 'wss'
+    options[:app_key],
+    ws_host: options[:ws_uri].host,
+    ws_port: options[:ws_uri].port,
+    wss_port: options[:ws_uri].port,
+    encrypted: options[:ws_uri].scheme == 'wss'
   )
   socket.connect(true)
   socket.subscribe('benchmark')
@@ -57,7 +91,7 @@ sockets = num.times.map do |i|
     received_total += 1
     puts "[#{i+1}.#{received_total}] #{data[0,60]}"
 
-    socket.disconnect if received_total == total
+    socket.disconnect if received_total == options[:messages]
   end
 
   socket
@@ -66,22 +100,22 @@ end
 channels = sockets.map {|s| s['benchmark'] }
 sleep 0.5 until channels.all?(&:subscribed)
 
-on_signal = ->(s) { puts_summary(stats, num, total, size); exit 0 }
+on_signal = ->(s) { puts_summary(stats, options[:num], options[:messages], options[:payload_size]); exit 0 }
 Signal.trap('INT',  &on_signal)
 Signal.trap('TERM', &on_signal)
 
-Pusher.app_id = id
-Pusher.key    = key
-Pusher.secret = secret
-Pusher.scheme = api_server.scheme
-Pusher.host   = api_server.host
-Pusher.port   = api_server.port
+Pusher.app_id = options[:app_id]
+Pusher.key    = options[:app_key]
+Pusher.secret = options[:app_secret]
+Pusher.scheme = options[:api_uri].scheme
+Pusher.host   = options[:api_uri].host
+Pusher.port   = options[:api_uri].port
 
 ts = Time.now
 count = 0
-while count < total
+while count < options[:messages]
   count += 1
-  payload = { time: Time.now.to_f.to_s, id: count, data: '*'*size }
+  payload = { time: Time.now.to_f.to_s, id: count, data: '*'*options[:payload_size] }
   Pusher.trigger_async('benchmark', 'bm_event', payload)
   sleep 0.5
 end
@@ -90,4 +124,4 @@ threads = sockets.map {|s| s.instance_variable_get('@connection_thread') }
 threads.each(&:join)
 te = Time.now
 
-puts_summary(stats, num, total, size, te-ts)
+puts_summary(stats, options[:num], options[:messages], options[:payload_size], te-ts)
