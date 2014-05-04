@@ -15,8 +15,10 @@
 
 Increase system limits (linux) with ulimit:
 
-    # check your hard limit on file descriptors
+    # check/set your hard/soft limit on file descriptors
     ulimit -Hn
-
-    # set your soft limit to max hard limit (suppose your hard limit is 4096)
     ulimit -n 4096
+
+    # check/set your hard/soft limit on user processes (threads)
+    ulimit -Hu
+    ulimit -u 62823
