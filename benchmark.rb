@@ -11,7 +11,8 @@ options = {
   ws_uri:  'ws://ws.pusherapp.com:80',
   num: 1,
   messages: 10,
-  payload_size: 20
+  payload_size: 20,
+  send_rate: 10
 }
 
 OptionParser.new do |opts|
@@ -45,6 +46,10 @@ OptionParser.new do |opts|
 
   opts.on '--size NUMBER', 'Payload size in bytes. (Default: 20)' do |s|
     options[:payload_size] = s.to_i
+  end
+
+  opts.on '--send-rate NUMBER', 'Message publish rate.  (Default: 10)' do |r|
+    options[:send_rate] = r.to_i
   end
 
   opts.on '--subscribe', 'Only subscribe.' do |s|
@@ -125,11 +130,12 @@ ts = Time.now
 
 unless options[:subscribe]
   count = 0
+  sleep_time = 1.0/options[:send_rate]
   while count < options[:messages]
     count += 1
     payload = { time: Time.now.to_f.to_s, id: count, data: '*'*options[:payload_size] }
     Pusher.trigger_async('benchmark', 'bm_event', payload)
-    sleep 0.1
+    sleep sleep_time
   end
 end
 
