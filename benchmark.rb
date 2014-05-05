@@ -46,6 +46,14 @@ OptionParser.new do |opts|
   opts.on '--size NUMBER', 'Payload size in bytes. (Default: 20)' do |s|
     options[:payload_size] = s.to_i
   end
+
+  opts.on '--subscribe', 'Only subscribe.' do |s|
+    options[:subscribe] = true
+  end
+
+  opts.on '--publish', 'Only publish.' do |s|
+    options[:publish] = true
+  end
 end.parse!
 
 unless options[:app_id] && options[:app_key] && options[:app_secret]
@@ -71,34 +79,36 @@ def puts_summary(stats, num, total, size, total_elapsed=nil)
   puts "mid latency: #{latency_mid}"
 end
 
-sockets = options[:num].times.map do |i|
-  sleep 0.2
-  received_total = 0
-  socket = PusherClient::Socket.new(
-    options[:app_key],
-    ws_host: options[:ws_uri].host,
-    ws_port: options[:ws_uri].port,
-    wss_port: options[:ws_uri].port,
-    encrypted: options[:ws_uri].scheme == 'wss'
-  )
-  socket.connect(true)
-  socket.subscribe('benchmark')
-  socket['benchmark'].bind('bm_event') do |data|
-    payload = JSON.parse data
-    latency = Time.now.to_f - payload['time'].to_f
-    stats[i] << latency
+unless options[:publish]
+  sockets = options[:num].times.map do |i|
+    sleep 0.1
+    received_total = 0
+    socket = PusherClient::Socket.new(
+      options[:app_key],
+      ws_host: options[:ws_uri].host,
+      ws_port: options[:ws_uri].port,
+      wss_port: options[:ws_uri].port,
+      encrypted: options[:ws_uri].scheme == 'wss'
+    )
+    socket.connect(true)
+    socket.subscribe('benchmark')
+    socket['benchmark'].bind('bm_event') do |data|
+      payload = JSON.parse data
+      latency = Time.now.to_f - payload['time'].to_f
+      stats[i] << latency
 
-    received_total += 1
-    puts "[#{i+1}.#{received_total}] #{data[0,60]}"
+      received_total += 1
+      puts "[#{i+1}.#{received_total}] #{data[0,60]}"
 
-    socket.disconnect if received_total == options[:messages]
+      socket.disconnect if received_total == options[:messages]
+    end
+
+    socket
   end
 
-  socket
+  channels = sockets.map {|s| s['benchmark'] }
+  sleep 0.5 until channels.all?(&:subscribed)
 end
-
-channels = sockets.map {|s| s['benchmark'] }
-sleep 0.5 until channels.all?(&:subscribed)
 
 on_signal = ->(s) { puts_summary(stats, options[:num], options[:messages], options[:payload_size]); exit 0 }
 Signal.trap('INT',  &on_signal)
@@ -112,16 +122,22 @@ Pusher.host   = options[:api_uri].host
 Pusher.port   = options[:api_uri].port
 
 ts = Time.now
-count = 0
-while count < options[:messages]
-  count += 1
-  payload = { time: Time.now.to_f.to_s, id: count, data: '*'*options[:payload_size] }
-  Pusher.trigger_async('benchmark', 'bm_event', payload)
-  sleep 0.5
+
+unless options[:subscribe]
+  count = 0
+  while count < options[:messages]
+    count += 1
+    payload = { time: Time.now.to_f.to_s, id: count, data: '*'*options[:payload_size] }
+    Pusher.trigger_async('benchmark', 'bm_event', payload)
+    sleep 0.1
+  end
 end
 
-threads = sockets.map {|s| s.instance_variable_get('@connection_thread') }
-threads.each(&:join)
+unless options[:publish]
+  threads = sockets.map {|s| s.instance_variable_get('@connection_thread') }
+  threads.each(&:join)
+end
+
 te = Time.now
 
-puts_summary(stats, options[:num], options[:messages], options[:payload_size], te-ts)
+puts_summary(stats, options[:num], options[:messages], options[:payload_size], te-ts) unless options[:publish]
