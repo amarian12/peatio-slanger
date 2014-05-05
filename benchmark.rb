@@ -70,12 +70,12 @@ PusherClient.logger = Logger.new File.open('pusher_client.log', 'w')
 
 stats = Hash.new {|h, k| h[k] = []}
 
-def puts_summary(stats, num, total, size, total_elapsed=nil)
+def puts_summary(stats, num, total, size, send_rate, total_elapsed=nil)
   latencies = stats.values.flatten
   latency_avg = latencies.inject(&:+) / latencies.size
   latency_mid = latencies.sort[latencies.size/2]
 
-  puts "\n*** Summary (clients: #{num}, messages send: #{total}, payload size: #{size})***\n"
+  puts "\n*** Summary (clients: #{num}, messages total/rate: #{total}/#{send_rate}, payload size: #{size})***\n"
   puts "Message received: %d (%.2f%%)" % [latencies.size, latencies.size.to_f*100/(num*total)]
   puts "Total time: #{total_elapsed}s" if total_elapsed
   puts "avg latency: #{latency_avg}s"
@@ -115,7 +115,7 @@ unless options[:publish]
   sleep 0.5 until channels.all?(&:subscribed)
 end
 
-on_signal = ->(s) { puts_summary(stats, options[:num], options[:messages], options[:payload_size]); exit 0 }
+on_signal = ->(s) { puts_summary(stats, options[:num], options[:messages], options[:payload_size], options[:send_rate]); exit 0 }
 Signal.trap('INT',  &on_signal)
 Signal.trap('TERM', &on_signal)
 
@@ -146,4 +146,4 @@ end
 
 te = Time.now
 
-puts_summary(stats, options[:num], options[:messages], options[:payload_size], te-ts) unless options[:publish]
+puts_summary(stats, options[:num], options[:messages], options[:payload_size], options[:send_rate], te-ts) unless options[:publish]
